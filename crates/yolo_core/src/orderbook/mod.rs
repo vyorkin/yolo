@@ -5,7 +5,10 @@ pub use limit::*;
 pub use order::*;
 
 use rust_decimal::{Decimal, dec};
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, HashMap},
+};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -37,10 +40,10 @@ pub struct Match {
 
 pub struct OrderBook {
     asks: BTreeMap<Decimal, Limit>,
-    bids: BTreeMap<Decimal, Limit>,
+    bids: BTreeMap<Reverse<Decimal>, Limit>,
     ask_total_volume: Decimal,
     bid_total_volume: Decimal,
-    order_locations: HashMap<Uuid, (Side, Decimal)>,
+    order_index: HashMap<Uuid, (Side, Decimal)>,
 }
 
 impl OrderBook {
@@ -50,7 +53,7 @@ impl OrderBook {
             bids: BTreeMap::new(),
             ask_total_volume: dec!(0),
             bid_total_volume: dec!(0),
-            order_locations: HashMap::new(),
+            order_index: HashMap::new(),
         }
     }
 
@@ -72,84 +75,131 @@ impl OrderBook {
     }
 
     pub fn cancel_order(&mut self, id: Uuid) -> Result<Order, OrderBookError> {
-        if let Some((side, price)) = self.order_locations.remove(&id) {
-            let limits_by_price = match side {
-                Side::Bid => &mut self.bids,
-                Side::Ask => &mut self.asks,
-            };
+        let (side, price) = self
+            .order_index
+            .remove(&id)
+            .ok_or(OrderBookError::OrderNotFound(id))?;
 
-            if let Some(limit) = limits_by_price.get_mut(&price) {
-                if let Some(removed_order) = limit.remove_order(id) {
-                    match side {
-                        Side::Bid => self.bid_total_volume -= removed_order.size,
-                        Side::Ask => self.ask_total_volume -= removed_order.size,
-                    }
-
-                    Ok(removed_order)
-                } else {
-                    Err(OrderBookError::InconsistentState)
-                }
-            } else {
-                Err(OrderBookError::LimitNotFound(price))
+        let (removed_order, is_empty_limit) = match side {
+            Side::Bid => {
+                let limit = self
+                    .bids
+                    .get_mut(&Reverse(price))
+                    .ok_or(OrderBookError::LimitNotFound(price))?;
+                let order = limit
+                    .remove_order(id)
+                    .ok_or(OrderBookError::OrderNotFound(id))?;
+                self.bid_total_volume -= order.size;
+                (order, limit.is_empty())
             }
-        } else {
-            Err(OrderBookError::OrderNotFound(id))
+            Side::Ask => {
+                let limit = self
+                    .asks
+                    .get_mut(&price)
+                    .ok_or(OrderBookError::LimitNotFound(price))?;
+                let order = limit
+                    .remove_order(id)
+                    .ok_or(OrderBookError::OrderNotFound(id))?;
+                self.ask_total_volume -= order.size;
+                (order, limit.is_empty())
+            }
+        };
+
+        if is_empty_limit {
+            match side {
+                Side::Bid => {
+                    self.bids.remove(&Reverse(price));
+                }
+                Side::Ask => {
+                    self.asks.remove(&price);
+                }
+            }
         }
+
+        Ok(removed_order)
     }
 
     pub fn place_market_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
         self.ensure_volume(order)?;
 
+        match order.side {
+            Side::Bid => self.place_market_bid_order(order),
+            Side::Ask => self.place_market_ask_order(order),
+        }
+    }
+
+    fn place_market_bid_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
         let mut matches = Vec::new();
-        let mut empty_limit_prices = Vec::new();
+        let mut empty_price_leves = Vec::new();
 
-        let (opposite_limits, opposite_side) = match order.side {
-            Side::Bid => (&mut self.asks, Side::Ask),
-            Side::Ask => (&mut self.bids, Side::Bid),
-        };
+        // For bid market order, match against asks (in asc order)
+        for (&price, limit) in &mut self.asks {
+            if order.is_filled() {
+                break;
+            }
 
-        for limit in opposite_limits.values_mut() {
             let mut limit_matches = limit.fill(order);
+            let sized_filled: Decimal = limit_matches.iter().map(|m| m.size_filled).sum();
+            self.ask_total_volume -= sized_filled;
             matches.append(&mut limit_matches);
 
             if limit.is_empty() {
-                empty_limit_prices.push(limit.price);
+                empty_price_leves.push(price);
             }
         }
 
-        for price in empty_limit_prices {
-            self.remove_limit(opposite_side, price);
+        for price in empty_price_leves {
+            self.asks.remove(&price);
+        }
+
+        Ok(matches)
+    }
+
+    fn place_market_ask_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
+        let mut matches = Vec::new();
+        let mut empty_price_leves = Vec::new();
+
+        // For ask market order, match against bids (in desc order)
+        for (&Reverse(price), limit) in &mut self.bids {
+            if order.is_filled() {
+                break;
+            }
+
+            let mut limit_matches = limit.fill(order);
+            let sized_filled: Decimal = limit_matches.iter().map(|m| m.size_filled).sum();
+            self.bid_total_volume -= sized_filled;
+            matches.append(&mut limit_matches);
+
+            if limit.is_empty() {
+                empty_price_leves.push(price);
+            }
+        }
+
+        for price in empty_price_leves {
+            self.bids.remove(&Reverse(price));
         }
 
         Ok(matches)
     }
 
     pub fn place_limit_order(&mut self, price: Decimal, order: Order) {
+        self.order_index.insert(order.id, (order.side, price));
+
         match order.side {
             Side::Ask => {
                 self.ask_total_volume += order.size;
-                &mut self.asks
+                self.asks
+                    .entry(price)
+                    .or_insert_with(|| Limit::new(price))
+                    .add_order(order);
             }
             Side::Bid => {
                 self.bid_total_volume += order.size;
-                &mut self.bids
+                self.bids
+                    .entry(Reverse(price))
+                    .or_insert_with(|| Limit::new(price))
+                    .add_order(order);
             }
-        }
-        .entry(price)
-        .or_insert_with(|| Limit::new(price))
-        .add_order(order.clone());
-
-        self.order_locations.insert(order.id, (order.side, price));
-    }
-
-    pub fn remove_limit(&mut self, side: Side, price: Decimal) {
-        let (limits, side_total_volume) = match side {
-            Side::Bid => (&mut self.bids, &mut self.bid_total_volume),
-            Side::Ask => (&mut self.asks, &mut self.ask_total_volume),
-        };
-
-        if let Some(limit) = limits.remove(&price) {
-            *side_total_volume -= limit.total_volume;
         }
     }
 }
@@ -190,6 +240,37 @@ mod tests {
     }
 
     #[test]
+    fn test_market_ask_partially_matches_multiple_limits() {
+        let mut order_book = OrderBook::new();
+
+        let bid_price1 = dec!(102.0);
+        let bid_price2 = dec!(101.0);
+        let bid_price3 = dec!(100.0);
+
+        let bid_order1 = Order::bid(dec!(3.0));
+        let bid_order2 = Order::bid(dec!(2.0));
+        let bid_order3 = Order::bid(dec!(4.0));
+
+        let bid_order1_id = bid_order1.id;
+        let bid_order2_id = bid_order2.id;
+
+        order_book.place_limit_order(bid_price1, bid_order1);
+        order_book.place_limit_order(bid_price2, bid_order2);
+        order_book.place_limit_order(bid_price3, bid_order3);
+
+        assert_eq!(order_book.bid_total_volume, dec!(9.0));
+
+        let mut market_ask_order = Order::ask(dec!(5.0));
+        let market_ask_order_id = market_ask_order.id;
+
+        let result = order_book.place_market_order(&mut market_ask_order);
+        assert!(result.is_ok());
+        let matches = result.unwrap();
+        println!("{:?}", matches);
+        assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
     fn test_place_single_bid_limit_order() {
         let mut order_book = OrderBook::new();
 
@@ -202,13 +283,13 @@ mod tests {
         assert_eq!(order_book.bid_total_volume, dec!(5));
         assert_eq!(order_book.ask_total_volume, dec!(0));
 
-        assert!(order_book.bids.contains_key(&price));
-        assert!(order_book.order_locations.contains_key(&bid_order_id));
+        assert!(order_book.bids.contains_key(&Reverse(price)));
+        assert!(order_book.order_index.contains_key(&bid_order_id));
 
         assert_eq!(order_book.bids.len(), 1);
         assert_eq!(order_book.asks.len(), 0);
 
-        let limit = order_book.bids.get(&price).unwrap();
+        let limit = order_book.bids.get(&Reverse(price)).unwrap();
         assert_eq!(limit.price, price);
         assert_eq!(limit.total_volume, dec!(5));
         assert!(limit.orders_by_uuid.contains_key(&bid_order_id));
@@ -237,9 +318,9 @@ mod tests {
         assert_eq!(order_book.bids.len(), 0);
         assert!(order_book.asks.contains_key(&price));
 
-        assert!(order_book.order_locations.contains_key(&ask_order1_id));
-        assert!(order_book.order_locations.contains_key(&ask_order2_id));
-        assert!(order_book.order_locations.contains_key(&ask_order3_id));
+        assert!(order_book.order_index.contains_key(&ask_order1_id));
+        assert!(order_book.order_index.contains_key(&ask_order2_id));
+        assert!(order_book.order_index.contains_key(&ask_order3_id));
 
         let limit = order_book.asks.get(&price).unwrap();
 
@@ -277,16 +358,24 @@ mod tests {
         assert_eq!(order_book.bids.len(), 2);
         assert_eq!(order_book.asks.len(), 1);
 
-        assert!(order_book.bids.contains_key(&bid_price1));
-        assert!(order_book.bids.contains_key(&bid_price2));
+        assert!(order_book.bids.contains_key(&Reverse(bid_price1)));
+        assert!(order_book.bids.contains_key(&Reverse(bid_price2)));
         assert!(order_book.asks.contains_key(&ask_price1));
 
         assert_eq!(
-            order_book.bids.get(&bid_price1).unwrap().total_volume,
+            order_book
+                .bids
+                .get(&Reverse(bid_price1))
+                .unwrap()
+                .total_volume,
             dec!(1.0)
         );
         assert_eq!(
-            order_book.bids.get(&bid_price2).unwrap().total_volume,
+            order_book
+                .bids
+                .get(&Reverse(bid_price2))
+                .unwrap()
+                .total_volume,
             dec!(5.0)
         );
         assert_eq!(
