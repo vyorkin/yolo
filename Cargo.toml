@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["crates/yolo", "crates/yolo_core", "crates/yolo_server"]

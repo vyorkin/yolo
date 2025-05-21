@@ -1,0 +1,7 @@
+[package]
+name = "yolo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+yolo_core = { path = "../yolo_core/" }
