@@ -104,8 +104,8 @@ impl OrderBook {
         let mut empty_limit_prices = Vec::new();
 
         let (opposite_limits, opposite_side) = match order.side {
-            Side::Bid => (&mut self.asks, Side::Bid),
-            Side::Ask => (&mut self.bids, Side::Ask),
+            Side::Bid => (&mut self.asks, Side::Ask),
+            Side::Ask => (&mut self.bids, Side::Bid),
         };
 
         for limit in opposite_limits.values_mut() {
@@ -144,8 +144,8 @@ impl OrderBook {
 
     pub fn remove_limit(&mut self, side: Side, price: Decimal) {
         let (limits, side_total_volume) = match side {
-            Side::Bid => (&mut self.bids, &mut self.ask_total_volume),
-            Side::Ask => (&mut self.asks, &mut self.bid_total_volume),
+            Side::Bid => (&mut self.bids, &mut self.bid_total_volume),
+            Side::Ask => (&mut self.asks, &mut self.ask_total_volume),
         };
 
         if let Some(limit) = limits.remove(&price) {
@@ -157,6 +157,37 @@ impl OrderBook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_market_bid_fully_matches_limit_ask() {
+        let mut order_book = OrderBook::new();
+
+        let ask_price = dec!(100.0);
+        let ask_order = Order::ask(dec!(5.0));
+        let ask_order_id = ask_order.id;
+
+        order_book.place_limit_order(ask_price, ask_order);
+
+        assert_eq!(order_book.ask_total_volume, dec!(5.0));
+
+        let mut market_bid_order = Order::bid(dec!(5.0));
+        let market_bid_order_id = market_bid_order.id;
+
+        let result = order_book.place_market_order(&mut market_bid_order);
+        assert!(result.is_ok());
+        let matches = result.unwrap();
+        assert_eq!(matches.len(), 1);
+
+        let market_match = &matches[0];
+        assert_eq!(market_match.bid.id, market_bid_order_id);
+        assert_eq!(market_match.ask.id, ask_order_id);
+        assert_eq!(market_match.size_filled, dec!(5.0));
+        assert_eq!(market_match.price, ask_price);
+
+        assert!(market_bid_order.is_filled());
+        assert_eq!(order_book.ask_total_volume, dec!(0.0));
+        assert_eq!(order_book.asks.len(), 0);
+    }
 
     #[test]
     fn test_place_single_bid_limit_order() {
