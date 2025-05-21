@@ -153,3 +153,123 @@ impl OrderBook {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_place_single_bid_limit_order() {
+        let mut order_book = OrderBook::new();
+
+        let price = dec!(100);
+        let bid_order = Order::bid(dec!(5));
+        let bid_order_id = bid_order.id;
+
+        order_book.place_limit_order(price, bid_order);
+
+        assert_eq!(order_book.bid_total_volume, dec!(5));
+        assert_eq!(order_book.ask_total_volume, dec!(0));
+
+        assert!(order_book.bids.contains_key(&price));
+        assert!(order_book.order_locations.contains_key(&bid_order_id));
+
+        assert_eq!(order_book.bids.len(), 1);
+        assert_eq!(order_book.asks.len(), 0);
+
+        let limit = order_book.bids.get(&price).unwrap();
+        assert_eq!(limit.price, price);
+        assert_eq!(limit.total_volume, dec!(5));
+        assert!(limit.orders_by_uuid.contains_key(&bid_order_id));
+        assert_eq!(limit.orders_by_timestamp.len(), 1);
+    }
+
+    #[test]
+    fn test_place_multiple_ask_limit_orders_at_same_price() {
+        let mut order_book = OrderBook::new();
+
+        let price = dec!(50);
+
+        let ask_order1 = Order::ask(dec!(2.0));
+        let ask_order2 = Order::ask(dec!(3.0));
+        let ask_order3 = Order::ask(dec!(1.5));
+
+        let ask_order1_id = ask_order1.id;
+        let ask_order2_id = ask_order2.id;
+        let ask_order3_id = ask_order3.id;
+
+        order_book.place_limit_order(price, ask_order1);
+        order_book.place_limit_order(price, ask_order2);
+        order_book.place_limit_order(price, ask_order3);
+
+        assert_eq!(order_book.ask_total_volume, dec!(6.5));
+        assert_eq!(order_book.bids.len(), 0);
+        assert!(order_book.asks.contains_key(&price));
+
+        assert!(order_book.order_locations.contains_key(&ask_order1_id));
+        assert!(order_book.order_locations.contains_key(&ask_order2_id));
+        assert!(order_book.order_locations.contains_key(&ask_order3_id));
+
+        let limit = order_book.asks.get(&price).unwrap();
+
+        assert_eq!(limit.total_volume, dec!(6.5));
+        assert_eq!(limit.price, price);
+        assert!(limit.orders_by_uuid.contains_key(&ask_order1_id));
+        assert!(limit.orders_by_uuid.contains_key(&ask_order2_id));
+        assert!(limit.orders_by_uuid.contains_key(&ask_order3_id));
+        assert_eq!(limit.orders_by_timestamp.len(), 3);
+    }
+
+    #[test]
+    fn test_place_multiple_limit_orders_at_multiple_price_levels() {
+        let mut order_book = OrderBook::new();
+
+        let bid_price1 = dec!(90.0);
+        let bid_price2 = dec!(95.0);
+
+        let ask_price1 = dec!(110.0);
+
+        let bid_order1 = Order::bid(dec!(1.0));
+        let bid_order2 = Order::bid(dec!(2.0));
+
+        let ask_order = Order::ask(dec!(3.0));
+
+        order_book.place_limit_order(bid_price1, bid_order1);
+        order_book.place_limit_order(bid_price2, bid_order2);
+        order_book.place_limit_order(ask_price1, ask_order);
+
+        assert_eq!(order_book.bid_total_volume, dec!(3.0));
+        assert_eq!(order_book.ask_total_volume, dec!(3.0));
+
+        assert_eq!(order_book.bids.len(), 2);
+        assert_eq!(order_book.asks.len(), 1);
+
+        assert!(order_book.bids.contains_key(&bid_price1));
+        assert!(order_book.bids.contains_key(&bid_price2));
+        assert!(order_book.asks.contains_key(&ask_price1));
+
+        assert_eq!(
+            order_book.bids.get(&bid_price1).unwrap().total_volume,
+            dec!(1.0)
+        );
+        assert_eq!(
+            order_book.bids.get(&bid_price2).unwrap().total_volume,
+            dec!(2.0)
+        );
+        assert_eq!(
+            order_book.asks.get(&ask_price1).unwrap().total_volume,
+            dec!(3.0)
+        );
+    }
+
+    #[test]
+    fn test_place_multiple_ask_limit_orders() {
+        let mut order_book = OrderBook::new();
+
+        let ask_order_1 = Order::ask(dec!(10));
+        let ask_order_2 = Order::ask(dec!(5));
+
+        order_book.place_limit_order(dec!(10_000), ask_order_1);
+        order_book.place_limit_order(dec!(9_000), ask_order_2);
+    }
+}
