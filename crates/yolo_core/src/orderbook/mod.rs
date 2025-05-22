@@ -110,51 +110,6 @@ impl OrderBook {
         Some(removed_order)
     }
 
-    pub fn cancel_order_alt(&mut self, id: Uuid) -> Result<Order, OrderBookError> {
-        let (side, price) = self
-            .order_index
-            .remove(&id)
-            .ok_or(OrderBookError::OrderNotFound(id))?;
-
-        let (removed_order, is_empty_limit) = match side {
-            Side::Bid => {
-                let limit = self
-                    .bids
-                    .get_mut(&Reverse(price))
-                    .ok_or(OrderBookError::LimitNotFound(price))?;
-                let order = limit
-                    .remove_order(id)
-                    .ok_or(OrderBookError::OrderNotFound(id))?;
-                self.bid_total_volume -= order.size;
-                (order, limit.is_empty())
-            }
-            Side::Ask => {
-                let limit = self
-                    .asks
-                    .get_mut(&price)
-                    .ok_or(OrderBookError::LimitNotFound(price))?;
-                let order = limit
-                    .remove_order(id)
-                    .ok_or(OrderBookError::OrderNotFound(id))?;
-                self.ask_total_volume -= order.size;
-                (order, limit.is_empty())
-            }
-        };
-
-        if is_empty_limit {
-            match side {
-                Side::Bid => {
-                    self.bids.remove(&Reverse(price));
-                }
-                Side::Ask => {
-                    self.asks.remove(&price);
-                }
-            }
-        }
-
-        Ok(removed_order)
-    }
-
     pub fn place_market_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
         self.ensure_volume(order)?;
 
