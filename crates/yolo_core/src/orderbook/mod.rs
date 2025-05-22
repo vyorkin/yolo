@@ -242,23 +242,68 @@ mod tests {
         let bid_order2 = Order::bid(dec!(2.0));
         let bid_order3 = Order::bid(dec!(4.0));
 
-        let bid_order1_id = bid_order1.id;
-        let bid_order2_id = bid_order2.id;
+        let bid_id1 = bid_order1.id;
+        let bid_id2 = bid_order2.id;
 
         order_book.place_limit_order(bid_price1, bid_order1);
         order_book.place_limit_order(bid_price2, bid_order2);
         order_book.place_limit_order(bid_price3, bid_order3);
-
         assert_eq!(order_book.bid_total_volume, dec!(9.0));
 
-        let mut market_ask_order = Order::ask(dec!(5.0));
-        let market_ask_order_id = market_ask_order.id;
+        let mut market_order = Order::ask(dec!(5.0));
 
-        let result = order_book.place_market_order(&mut market_ask_order);
+        let result = order_book.place_market_order(&mut market_order);
+
         assert!(result.is_ok());
         let matches = result.unwrap();
-        println!("{:?}", matches);
-        assert_eq!(matches.len(), 2);
+        assert_eq!(matches.len(), 2); // Should match against two highest bids
+
+        assert_eq!(matches[0].price, bid_price1);
+        assert_eq!(matches[0].bid.id, bid_id1);
+        assert_eq!(matches[0].size_filled, dec!(3.0));
+
+        assert_eq!(matches[1].price, bid_price2);
+        assert_eq!(matches[1].bid.id, bid_id2);
+        assert_eq!(matches[1].size_filled, dec!(2.0));
+
+        assert!(market_order.is_filled());
+        assert_eq!(order_book.bid_total_volume, dec!(4.0)); // Only the lowest bid remains
+        assert_eq!(order_book.bids.len(), 1);
+        assert!(order_book.bids.contains_key(&Reverse(bid_price3)));
+    }
+
+    #[test]
+    fn test_market_order_fails_with_insufficient_volume() {
+        let mut orderbook = OrderBook::new();
+
+        let ask_price = dec!(100.0);
+        let ask_order = Order::ask(dec!(2.0));
+
+        orderbook.place_limit_order(ask_price, ask_order);
+        assert_eq!(orderbook.ask_total_volume, dec!(2.0));
+
+        let mut market_order = Order::bid(dec!(5.0));
+
+        let result = orderbook.place_market_order(&mut market_order);
+
+        assert!(result.is_err());
+
+        match result {
+            Err(OrderBookError::NotEnoughVolume {
+                side,
+                expected_volume,
+                actual_volume,
+            }) => {
+                assert_eq!(side, Side::Bid);
+                assert_eq!(expected_volume, dec!(5.0));
+                assert_eq!(actual_volume, dec!(2.0));
+            }
+            _ => panic!("Expected NotEnoughVolume error"),
+        }
+
+        assert_eq!(orderbook.ask_total_volume, dec!(2.0));
+        assert_eq!(orderbook.asks.len(), 1);
+        assert!(!market_order.is_filled());
     }
 
     #[test]
@@ -373,5 +418,72 @@ mod tests {
             order_book.asks.get(&ask_price1).unwrap().total_volume,
             dec!(3.0)
         );
+    }
+
+    #[test]
+    fn test_cancel_bid_order() {
+        let mut order_book = OrderBook::new();
+        let price = dec!(100.0);
+        let bid_order = Order::bid(dec!(5.0));
+        let bid_order_id = bid_order.id;
+
+        order_book.place_limit_order(price, bid_order);
+        assert_eq!(order_book.bid_total_volume, dec!(5.0));
+        assert_eq!(order_book.bids.len(), 1);
+
+        let cancelled_order = order_book.cancel_order(bid_order_id).unwrap();
+
+        assert_eq!(cancelled_order.id, bid_order_id);
+        assert_eq!(order_book.bid_total_volume, dec!(0.0));
+        assert_eq!(order_book.bids.len(), 0);
+    }
+
+    #[test]
+    fn test_cancel_ask_order() {
+        let mut order_book = OrderBook::new();
+        let price = dec!(100.0);
+        let ask_order = Order::ask(dec!(5.0));
+        let ask_order_id = ask_order.id;
+
+        order_book.place_limit_order(price, ask_order);
+        assert_eq!(order_book.ask_total_volume, dec!(5.0));
+
+        let cancelled_order = order_book.cancel_order(ask_order_id).unwrap();
+
+        assert_eq!(cancelled_order.id, ask_order_id);
+        assert_eq!(order_book.ask_total_volume, dec!(0.0));
+        assert_eq!(order_book.asks.len(), 0);
+    }
+
+    #[test]
+    fn test_cancel_one_of_multiple_orders_at_price_level() {
+        let mut order_book = OrderBook::new();
+        let price = dec!(100.0);
+
+        let order1 = Order::bid(dec!(1.0));
+        let order2 = Order::bid(dec!(2.0));
+        let order3 = Order::bid(dec!(3.0));
+
+        let id1 = order1.id;
+        let id2 = order2.id;
+        let id3 = order3.id;
+
+        order_book.place_limit_order(price, order1);
+        order_book.place_limit_order(price, order2);
+        order_book.place_limit_order(price, order3);
+
+        assert_eq!(order_book.bid_total_volume, dec!(6.0));
+
+        let cancelled_order = order_book.cancel_order(id2).unwrap();
+
+        assert_eq!(cancelled_order.id, id2);
+        assert_eq!(order_book.bid_total_volume, dec!(4.0)); // 6.0 - 2.0 = 4.0
+        assert_eq!(order_book.bids.len(), 1);
+
+        let key = Reverse(price);
+        let limit = order_book.bids.get(&key).unwrap();
+        assert_eq!(limit.orders_by_uuid.len(), 2);
+        assert!(limit.orders_by_uuid.contains_key(&id1));
+        assert!(limit.orders_by_uuid.contains_key(&id3));
     }
 }
