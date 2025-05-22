@@ -80,6 +80,42 @@ impl OrderBook {
             .remove(&id)
             .ok_or(OrderBookError::OrderNotFound(id))?;
 
+        let cancelled_oreder = match side {
+            Side::Bid => self.cancel_bid_order(id, price),
+            Side::Ask => self.cancel_ask_order(id, price),
+        };
+
+        cancelled_oreder.ok_or(OrderBookError::OrderNotFound(id))
+    }
+
+    fn cancel_bid_order(&mut self, id: Uuid, price: Decimal) -> Option<Order> {
+        let key = Reverse(price);
+        let limit = self.bids.get_mut(&key)?;
+        let removed_order = limit.remove_order(id)?;
+        self.bid_total_volume -= removed_order.size;
+        if limit.is_empty() {
+            self.bids.remove(&key)?;
+        }
+        Some(removed_order)
+    }
+
+    fn cancel_ask_order(&mut self, id: Uuid, price: Decimal) -> Option<Order> {
+        let key = price;
+        let limit = self.asks.get_mut(&key)?;
+        let removed_order = limit.remove_order(id)?;
+        self.ask_total_volume -= removed_order.size;
+        if limit.is_empty() {
+            self.asks.remove(&key)?;
+        }
+        Some(removed_order)
+    }
+
+    pub fn cancel_order_alt(&mut self, id: Uuid) -> Result<Order, OrderBookError> {
+        let (side, price) = self
+            .order_index
+            .remove(&id)
+            .ok_or(OrderBookError::OrderNotFound(id))?;
+
         let (removed_order, is_empty_limit) = match side {
             Side::Bid => {
                 let limit = self
