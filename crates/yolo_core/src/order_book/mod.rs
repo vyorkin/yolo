@@ -173,7 +173,7 @@ impl OrderBook {
         Ok(matches)
     }
 
-    pub fn place_limit_order(&mut self, price: Decimal, order: Order) {
+    pub fn place_limit_order(&mut self, price: Decimal, order: &Order) {
         self.order_index.insert(order.id, (order.side, price));
 
         match order.side {
@@ -182,16 +182,22 @@ impl OrderBook {
                 self.asks
                     .entry(price)
                     .or_insert_with(|| Limit::new(price))
-                    .add_order(order);
+                    .add_order(order.clone());
             }
             Side::Bid => {
                 self.bid_total_volume += order.size;
                 self.bids
                     .entry(Reverse(price))
                     .or_insert_with(|| Limit::new(price))
-                    .add_order(order);
+                    .add_order(order.clone());
             }
         }
+    }
+}
+
+impl Default for OrderBook {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -207,7 +213,7 @@ mod tests {
         let ask_order = Order::ask(dec!(5.0));
         let ask_order_id = ask_order.id;
 
-        order_book.place_limit_order(ask_price, ask_order);
+        order_book.place_limit_order(ask_price, &ask_order);
 
         assert_eq!(order_book.ask_total_volume, dec!(5.0));
 
@@ -245,9 +251,9 @@ mod tests {
         let bid_id1 = bid_order1.id;
         let bid_id2 = bid_order2.id;
 
-        order_book.place_limit_order(bid_price1, bid_order1);
-        order_book.place_limit_order(bid_price2, bid_order2);
-        order_book.place_limit_order(bid_price3, bid_order3);
+        order_book.place_limit_order(bid_price1, &bid_order1);
+        order_book.place_limit_order(bid_price2, &bid_order2);
+        order_book.place_limit_order(bid_price3, &bid_order3);
         assert_eq!(order_book.bid_total_volume, dec!(9.0));
 
         let mut market_order = Order::ask(dec!(5.0));
@@ -279,7 +285,7 @@ mod tests {
         let ask_price = dec!(100.0);
         let ask_order = Order::ask(dec!(2.0));
 
-        orderbook.place_limit_order(ask_price, ask_order);
+        orderbook.place_limit_order(ask_price, &ask_order);
         assert_eq!(orderbook.ask_total_volume, dec!(2.0));
 
         let mut market_order = Order::bid(dec!(5.0));
@@ -314,7 +320,7 @@ mod tests {
         let bid_order = Order::bid(dec!(5));
         let bid_order_id = bid_order.id;
 
-        order_book.place_limit_order(price, bid_order);
+        order_book.place_limit_order(price, &bid_order);
 
         assert_eq!(order_book.bid_total_volume, dec!(5));
         assert_eq!(order_book.ask_total_volume, dec!(0));
@@ -346,9 +352,9 @@ mod tests {
         let ask_order2_id = ask_order2.id;
         let ask_order3_id = ask_order3.id;
 
-        order_book.place_limit_order(price, ask_order1);
-        order_book.place_limit_order(price, ask_order2);
-        order_book.place_limit_order(price, ask_order3);
+        order_book.place_limit_order(price, &ask_order1);
+        order_book.place_limit_order(price, &ask_order2);
+        order_book.place_limit_order(price, &ask_order3);
 
         assert_eq!(order_book.ask_total_volume, dec!(6.5));
         assert_eq!(order_book.bids.len(), 0);
@@ -383,10 +389,10 @@ mod tests {
 
         let ask_order = Order::ask(dec!(3.0));
 
-        order_book.place_limit_order(bid_price1, bid_order1);
-        order_book.place_limit_order(bid_price2, bid_order2);
-        order_book.place_limit_order(bid_price2, bid_order3);
-        order_book.place_limit_order(ask_price1, ask_order);
+        order_book.place_limit_order(bid_price1, &bid_order1);
+        order_book.place_limit_order(bid_price2, &bid_order2);
+        order_book.place_limit_order(bid_price2, &bid_order3);
+        order_book.place_limit_order(ask_price1, &ask_order);
 
         assert_eq!(order_book.bid_total_volume, dec!(6.0));
         assert_eq!(order_book.ask_total_volume, dec!(3.0));
@@ -427,7 +433,7 @@ mod tests {
         let bid_order = Order::bid(dec!(5.0));
         let bid_order_id = bid_order.id;
 
-        order_book.place_limit_order(price, bid_order);
+        order_book.place_limit_order(price, &bid_order);
         assert_eq!(order_book.bid_total_volume, dec!(5.0));
         assert_eq!(order_book.bids.len(), 1);
 
@@ -445,7 +451,7 @@ mod tests {
         let ask_order = Order::ask(dec!(5.0));
         let ask_order_id = ask_order.id;
 
-        order_book.place_limit_order(price, ask_order);
+        order_book.place_limit_order(price, &ask_order);
         assert_eq!(order_book.ask_total_volume, dec!(5.0));
 
         let cancelled_order = order_book.cancel_order(ask_order_id).unwrap();
@@ -468,9 +474,9 @@ mod tests {
         let id2 = order2.id;
         let id3 = order3.id;
 
-        order_book.place_limit_order(price, order1);
-        order_book.place_limit_order(price, order2);
-        order_book.place_limit_order(price, order3);
+        order_book.place_limit_order(price, &order1);
+        order_book.place_limit_order(price, &order2);
+        order_book.place_limit_order(price, &order3);
 
         assert_eq!(order_book.bid_total_volume, dec!(6.0));
 

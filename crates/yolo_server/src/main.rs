@@ -6,8 +6,13 @@ mod server_state;
 
 use std::time::Duration;
 
-use api::order_book_index;
-use axum::{Router, error_handling::HandleErrorLayer, http::StatusCode, routing::get};
+use api::{create_limit_order, order_book_index};
+use axum::{
+    Router,
+    error_handling::HandleErrorLayer,
+    http::StatusCode,
+    routing::{get, post},
+};
 use server_config::ServerConfig;
 use server_state::SharedServerState;
 use tokio::{
@@ -86,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/order-book/{pair}", get(order_book_index))
+        .route("/order-book/{pair}/limit-order", post(create_limit_order))
         .layer(service_stack)
         .with_state(server_state);
 

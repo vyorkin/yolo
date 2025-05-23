@@ -16,7 +16,7 @@ impl Default for ServerState {
     fn default() -> Self {
         let mut exchange = Exchange::new();
         let mut order_book = OrderBook::new();
-        order_book.place_limit_order(dec!(100.0), Order::ask(dec!(10.0)));
+        order_book.place_limit_order(dec!(100.0), &Order::ask(dec!(10.0)));
         exchange.insert("usdt_eth".to_string(), order_book);
         Self { exchange }
     }

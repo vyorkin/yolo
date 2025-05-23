@@ -105,7 +105,7 @@ impl Limit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orderbook::order::{Order, Side};
+    use crate::order_book::order::{Order, Side};
 
     #[test]
     fn test_add_and_remove_order() {
