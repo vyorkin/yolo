@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use rust_decimal::{Decimal, dec};
 use uuid::Uuid;
 
-use crate::orderbook::Side;
+use crate::order_book::Side;
 
 use super::{
     Match,

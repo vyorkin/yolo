@@ -32,18 +32,18 @@ pub enum OrderBookError {
 
 #[derive(Debug)]
 pub struct Match {
-    ask: Order,
-    bid: Order,
-    size_filled: Decimal,
-    price: Decimal,
+    pub ask: Order,
+    pub bid: Order,
+    pub size_filled: Decimal,
+    pub price: Decimal,
 }
 
 pub struct OrderBook {
-    asks: BTreeMap<Decimal, Limit>,
-    bids: BTreeMap<Reverse<Decimal>, Limit>,
-    ask_total_volume: Decimal,
-    bid_total_volume: Decimal,
-    order_index: HashMap<Uuid, (Side, Decimal)>,
+    pub asks: BTreeMap<Decimal, Limit>,
+    pub bids: BTreeMap<Reverse<Decimal>, Limit>,
+    pub ask_total_volume: Decimal,
+    pub bid_total_volume: Decimal,
+    pub order_index: HashMap<Uuid, (Side, Decimal)>,
 }
 
 impl OrderBook {

@@ -1,10 +1,15 @@
+mod api;
+mod models;
 mod server_config;
 mod server_env;
+mod server_state;
 
 use std::time::Duration;
 
+use api::order_book_index;
 use axum::{Router, error_handling::HandleErrorLayer, http::StatusCode, routing::get};
 use server_config::ServerConfig;
+use server_state::SharedServerState;
 use tokio::{
     net::TcpListener,
     signal::{self, unix::SignalKind},
@@ -12,10 +17,6 @@ use tokio::{
 use tower::{BoxError, ServiceBuilder, timeout::TimeoutLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-async fn handler() -> &'static str {
-    "hello world"
-}
 
 async fn shutdown_signal() {
     let ctrl_c = async {
@@ -36,8 +37,14 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        _ = ctrl_c => {
+            tracing::debug!("ctrl+c received");
+            tracing::debug!("waiting for outstanding requests to complete...")
+        },
+        _ = terminate => {
+            tracing::debug!("SIGTERM received");
+            tracing::debug!("waiting for a few seconds to complete outstanding requests...")
+        },
     }
 }
 
@@ -69,12 +76,18 @@ async fn main() -> anyhow::Result<()> {
         .timeout(Duration::from_secs(10))
         .layer((
             TraceLayer::new_for_http(),
-            // graceful shutdown
+            // graceful shutdown:
+            // wait for outstanding requests to complete
             TimeoutLayer::new(Duration::from_secs(3)),
         ))
         .into_inner();
 
-    let app = Router::new().route("/", get(handler)).layer(service_stack);
+    let server_state = SharedServerState::default();
+
+    let app = Router::new()
+        .route("/order-book/{pair}", get(order_book_index))
+        .layer(service_stack)
+        .with_state(server_state);
 
     let address = format!("{}:{}", server_config.host, server_config.port);
     let listener = TcpListener::bind(address).await?;

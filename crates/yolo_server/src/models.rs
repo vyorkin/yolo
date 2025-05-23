@@ -1,0 +1,64 @@
+use rust_decimal::Decimal;
+use serde::Serialize;
+use std::cmp::Reverse;
+use uuid::Uuid;
+
+#[derive(Serialize)]
+pub struct Order {
+    pub id: Uuid,
+    pub price: Decimal,
+    pub size: Decimal,
+    pub timestamp: i64,
+}
+
+#[derive(Serialize)]
+pub struct OrderBook {
+    asks: Vec<Order>,
+    bids: Vec<Order>,
+    ask_total_volume: Decimal,
+    bid_total_volume: Decimal,
+}
+
+impl From<(&yolo_core::Order, Decimal)> for Order {
+    fn from((order, price): (&yolo_core::Order, Decimal)) -> Self {
+        Order {
+            id: order.id,
+            price,
+            size: order.size,
+            timestamp: order.timestamp,
+        }
+    }
+}
+
+impl From<&yolo_core::OrderBook> for OrderBook {
+    fn from(order_book: &yolo_core::OrderBook) -> Self {
+        let asks = order_book
+            .asks
+            .iter()
+            .flat_map(|(&price, limit)| {
+                limit
+                    .orders_by_uuid
+                    .values()
+                    .map(move |order| Order::from((order, price)))
+            })
+            .collect();
+
+        let bids = order_book
+            .bids
+            .iter()
+            .flat_map(|(&Reverse(price), limit)| {
+                limit
+                    .orders_by_uuid
+                    .values()
+                    .map(move |order| Order::from((order, price)))
+            })
+            .collect();
+
+        OrderBook {
+            asks,
+            bids,
+            bid_total_volume: order_book.bid_total_volume,
+            ask_total_volume: order_book.ask_total_volume,
+        }
+    }
+}
