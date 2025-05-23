@@ -5,13 +5,40 @@ use std::time::Duration;
 
 use axum::{Router, error_handling::HandleErrorLayer, http::StatusCode, routing::get};
 use server_config::ServerConfig;
-use tokio::net::TcpListener;
-use tower::{BoxError, ServiceBuilder};
+use tokio::{
+    net::TcpListener,
+    signal::{self, unix::SignalKind},
+};
+use tower::{BoxError, ServiceBuilder, timeout::TimeoutLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 async fn handler() -> &'static str {
     "hello world"
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install ctrl+c handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
 
 #[tokio::main]
@@ -40,7 +67,11 @@ async fn main() -> anyhow::Result<()> {
     let service_stack = ServiceBuilder::new()
         .layer(error_handling_layer)
         .timeout(Duration::from_secs(10))
-        .layer(TraceLayer::new_for_http())
+        .layer((
+            TraceLayer::new_for_http(),
+            // graceful shutdown
+            TimeoutLayer::new(Duration::from_secs(3)),
+        ))
         .into_inner();
 
     let app = Router::new().route("/", get(handler)).layer(service_stack);
@@ -49,7 +80,9 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(address).await?;
     tracing::debug!("listening on {}", listener.local_addr().unwrap());
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
 }
