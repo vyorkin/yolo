@@ -184,6 +184,5 @@ pub async fn cancel_order(
     let mut state = state.write()?;
     let order_book = state.exchange.get_mut(&pair).ok_or(ServerError::NotFound)?;
     order_book.cancel_order(id)?;
-
     Ok(StatusCode::NO_CONTENT)
 }

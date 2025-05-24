@@ -21,5 +21,5 @@ tower-http = { version = "0.6.1", features = ["add-extension", "trace"] }
 axum = { version = "0.8.4", features = ["macros"] }
 thiserror = "2.0.12"
 anyhow = "1.0"
-
+alloy = "1.0.7"
 yolo_core = { path = "../yolo_core/" }
