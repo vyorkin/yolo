@@ -9,11 +9,10 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap},
 };
-use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Error, Debug)]
-pub enum OrderBookError {
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("inconsistent order book state")]
     InconsistentState,
     #[error("limit at price `{0}` not found")]
@@ -31,7 +30,7 @@ pub enum OrderBookError {
 }
 
 #[derive(Debug)]
-pub struct Match {
+pub struct OrderMatch {
     pub ask: Order,
     pub bid: Order,
     pub size_filled: Decimal,
@@ -57,14 +56,14 @@ impl OrderBook {
         }
     }
 
-    fn ensure_volume(&self, order: &Order) -> Result<(), OrderBookError> {
+    fn ensure_volume(&self, order: &Order) -> Result<(), Error> {
         let total_volume = match order.side {
             Side::Bid => self.ask_total_volume,
             Side::Ask => self.bid_total_volume,
         };
 
         if order.size > total_volume {
-            Err(OrderBookError::NotEnoughVolume {
+            Err(Error::NotEnoughVolume {
                 side: order.side,
                 expected_volume: order.size,
                 actual_volume: total_volume,
@@ -74,18 +73,18 @@ impl OrderBook {
         }
     }
 
-    pub fn cancel_order(&mut self, id: Uuid) -> Result<Order, OrderBookError> {
+    pub fn cancel_order(&mut self, id: Uuid) -> Result<Order, Error> {
         let (side, price) = self
             .order_index
             .remove(&id)
-            .ok_or(OrderBookError::OrderNotFound(id))?;
+            .ok_or(Error::OrderNotFound(id))?;
 
         let cancelled_oreder = match side {
             Side::Bid => self.cancel_bid_order(id, price),
             Side::Ask => self.cancel_ask_order(id, price),
         };
 
-        cancelled_oreder.ok_or(OrderBookError::OrderNotFound(id))
+        cancelled_oreder.ok_or(Error::OrderNotFound(id))
     }
 
     fn cancel_bid_order(&mut self, id: Uuid, price: Decimal) -> Option<Order> {
@@ -110,7 +109,7 @@ impl OrderBook {
         Some(removed_order)
     }
 
-    pub fn place_market_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
+    pub fn place_market_order(&mut self, order: &mut Order) -> Result<Vec<OrderMatch>, Error> {
         self.ensure_volume(order)?;
 
         match order.side {
@@ -119,7 +118,7 @@ impl OrderBook {
         }
     }
 
-    fn place_market_bid_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
+    fn place_market_bid_order(&mut self, order: &mut Order) -> Result<Vec<OrderMatch>, Error> {
         let mut matches = Vec::new();
         let mut empty_price_leves = Vec::new();
 
@@ -146,7 +145,7 @@ impl OrderBook {
         Ok(matches)
     }
 
-    fn place_market_ask_order(&mut self, order: &mut Order) -> Result<Vec<Match>, OrderBookError> {
+    fn place_market_ask_order(&mut self, order: &mut Order) -> Result<Vec<OrderMatch>, Error> {
         let mut matches = Vec::new();
         let mut empty_price_leves = Vec::new();
 
@@ -295,7 +294,7 @@ mod tests {
         assert!(result.is_err());
 
         match result {
-            Err(OrderBookError::NotEnoughVolume {
+            Err(Error::NotEnoughVolume {
                 side,
                 expected_volume,
                 actual_volume,

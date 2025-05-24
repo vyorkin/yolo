@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::order_book::Side;
 
 use super::{
-    Match,
+    OrderMatch,
     order::{Order, OrderByTimestamp},
 };
 
@@ -50,7 +50,7 @@ impl Limit {
         self.orders_by_uuid.is_empty()
     }
 
-    pub fn fill(&mut self, order: &mut Order) -> Vec<Match> {
+    pub fn fill(&mut self, order: &mut Order) -> Vec<OrderMatch> {
         let mut matches = Vec::new();
         let mut filled_order_ids: Vec<Uuid> = Vec::new();
 
@@ -74,7 +74,7 @@ impl Limit {
         matches
     }
 
-    fn match_orders(order1: &mut Order, order2: &mut Order, price: Decimal) -> Match {
+    fn match_orders(order1: &mut Order, order2: &mut Order, price: Decimal) -> OrderMatch {
         let (bid, ask) = match (order1.side, order2.side) {
             (Side::Bid, Side::Ask) => (order1, order2),
             (Side::Ask, Side::Bid) => (order2, order1),
@@ -93,7 +93,7 @@ impl Limit {
             size
         };
 
-        Match {
+        OrderMatch {
             ask: ask.clone(),
             bid: bid.clone(),
             size_filled,

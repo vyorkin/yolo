@@ -11,14 +11,6 @@ pub struct Order {
     pub timestamp: i64,
 }
 
-#[derive(Serialize)]
-pub struct OrderBook {
-    asks: Vec<Order>,
-    bids: Vec<Order>,
-    ask_total_volume: Decimal,
-    bid_total_volume: Decimal,
-}
-
 impl From<(&yolo_core::Order, Decimal)> for Order {
     fn from((order, price): (&yolo_core::Order, Decimal)) -> Self {
         Order {
@@ -28,6 +20,37 @@ impl From<(&yolo_core::Order, Decimal)> for Order {
             timestamp: order.timestamp,
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct MatchedOrder {
+    pub id: Uuid,
+    pub price: Decimal,
+    pub size: Decimal,
+}
+
+impl From<(&yolo_core::OrderMatch, &yolo_core::Order)> for MatchedOrder {
+    fn from((order_match, order): (&yolo_core::OrderMatch, &yolo_core::Order)) -> Self {
+        let id = if order.side == yolo_core::Side::Bid {
+            order_match.ask.id
+        } else {
+            order_match.bid.id
+        };
+
+        MatchedOrder {
+            id,
+            price: order_match.price,
+            size: order_match.size_filled,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct OrderBook {
+    asks: Vec<Order>,
+    bids: Vec<Order>,
+    ask_total_volume: Decimal,
+    bid_total_volume: Decimal,
 }
 
 impl From<&yolo_core::OrderBook> for OrderBook {
