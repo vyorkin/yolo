@@ -91,8 +91,8 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/order-book/{pair}", get(order_book_index))
-        .route("/order-book/{pair}/limit-order", post(create_limit_order))
-        .route("/order-book/{pair}/market-order", post(create_market_order))
+        .route("/order-book/{pair}/order/limit", post(create_limit_order))
+        .route("/order-book/{pair}/order/market", post(create_market_order))
         .route("/order-book/{pair}/{id}", delete(cancel_order))
         .layer(service_stack)
         .with_state(server_state);

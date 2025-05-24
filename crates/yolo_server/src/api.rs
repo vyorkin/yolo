@@ -33,7 +33,6 @@ enum ServerErrorCode {
     UnknownError = -1,
     BadUserInput = 1,
     OrderBookError = 2,
-    LockPoisonedError = 3,
 }
 
 // Add conversion for PoisonError
@@ -71,7 +70,7 @@ impl IntoResponse for ServerError {
             }
             ServerError::NotFound => (StatusCode::NOT_FOUND, None),
             ServerError::PoisonError | ServerError::Internal(_) => {
-                tracing::error!(error = %self, "uknown and unexpected error");
+                tracing::error!(error = %self, "internal error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Some(ServerErrorCode::UnknownError),
@@ -181,6 +180,10 @@ pub async fn cancel_order(
     State(state): State<SharedServerState>,
     Path(pair): Path<String>,
     Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<impl IntoResponse, ServerError> {
+    let mut state = state.write()?;
+    let order_book = state.exchange.get_mut(&pair).ok_or(ServerError::NotFound)?;
+    order_book.cancel_order(id)?;
+
     Ok(StatusCode::NO_CONTENT)
 }
